@@ -29,11 +29,16 @@ class Register:
         self.username_validator.validate(username)
 
         password1 = self.data.get('password1')
+        if not password1:
+            raise InputError(
+                "Password must not be empty.", 'password_empty')            
+        if not password2:
+            raise InputError(
+                "Password must not be empty.", 'password_empty')   
         password2 = self.data.get('password2')
         if password1 != password2:
             raise InputError(
                 "The two password fields didn't match.", 'password_mismatch')
-        self.password_validator.validate(password1)
 
         email = self.data.get('email')
         email_confirm = self.data.get('email_confirm')
