@@ -1,42 +1,27 @@
 import MySQLdb
 import logging
-import xmltodict
-import logging.config
 from connect import Connect
-from xml.sax import handler, make_parser
-from xml.dom import pulldom
+from validation import IntegerInputValidator, MinimumLengthValidator
 
 logger = logging.getLogger(__name__)
 
 
-class ProviderXML:
-    """Provider XML operations"""
+class Provider(object):
+    """Provider CRUD operations"""
 
-    def insert(self, provider_xml):
+    def __init__(self):
+        self.int_validator = IntegerInputValidator()
+        self.min_validator = MinimumLengthValidator()
 
-        parser = make_parser()
-        # Include all external general (text) entities.
-        parser.setFeature(handler.feature_external_ges, True)
-        # Include all external parameter entities, including the external DTD.
-        parser.setFeature(handler.feature_external_pes, False)
-        # Report all validation errors
-        parser.setFeature(handler.feature_validation, False)
-
-        try:
-            document = pulldom.parse(provider_xml, parser=parser)
-        except Exception as e:
-            logger.error('XML parse error - %s' % e)
-            raise ValueError(e) from e
-        provider = self._xml_convert(document)
-
+    def insert(self, providers_list):
         try:
             conn = Connect()
             cursor = conn.db.cursor()
-            cursor.execute(
+            cursor.executemany(
                 """
                 INSERT INTO providers (name, address, phone)
                     VALUES (%(name)s, %(address)s, %(phone)s)
-                """, provider
+                """, providers_list
             )
             conn.db.commit()
             logger.info('Provider %02d inserted' % cursor.lastrowid)
@@ -45,17 +30,68 @@ class ProviderXML:
         finally:
             conn.db.close()
 
-    def _xml_convert(self, document):
+    def retrieve(self, provider_id):
+        result = None
+        try:
+            conn = Connect()
+            cursor = conn.db.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM providers WHERE providerID=%(id)s
+                """, {'id': provider_id}
+            )
+            result = cursor.fetchall()
+        except MySQLdb.MySQLError as e:
+            logger.error('Could not retrieve the records: %s' % e)
+        finally:
+            conn.db.close()
+        return result
 
-        xml = ''
-        for event, node in document:
-            if event == pulldom.START_ELEMENT:
-                expanded_node = document.expandNode(node)
-                if expanded_node:
-                    xml += expanded_node
-                xml += node.toxml()
+    def update(self, **kwargs):
+        self.min_validator.validate(kwargs.get('name'), 3)
+        self.int_validator.validate(kwargs.get('id'))
+        try:
+            conn = Connect()
+            result = conn.db.cursor().execute(
+                """
+                UPDATE providers
+                    SET name=%(name)s, address=%(address)s, phone=%(phone)s
+                WHERE providerID=%(id)s AND EXISTS (
+                    SELECT providerID FROM (
+                        SELECT providerID FROM providers WHERE providerID=%(id)s
+                    ) AS tmp
+                )
+                """, kwargs
+            )
+            conn.db.commit()
 
-        data = xmltodict.parse(xml)
-        key, value = list(data.items())[0]
+            if result:
+                logger.info('Provider id %02d updated' % kwargs.get('id'))
+            else:
+                logger.info('Could not update provider')
+        except MySQLdb.MySQLError as e:
+            logger.error('Could not update provider: %s' % e)
+        finally:
+            conn.db.close()
 
-        return value
+    def delete(self, provider_id):
+        try:
+            conn = Connect()
+            result = conn.db.cursor().execute(
+                """
+                DELETE FROM providers WHERE providerID=%(id)s AND EXISTS (
+                    SELECT providerID FROM (
+                        SELECT providerID FROM providers WHERE providerID=%(id)s
+                    ) AS tmp
+                )
+                """, {'id': provider_id}
+            )
+            conn.db.commit()
+            if result:
+                logger.warning('provider id %02d deleted' % provider_id)
+            else:
+                logger.warning('Provider does not exist')
+        except MySQLdb.MySQLError as e:
+            logger.error('Could not delete provider: %s' % e)
+        finally:
+            conn.db.close()
