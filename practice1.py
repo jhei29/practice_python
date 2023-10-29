@@ -11,7 +11,7 @@ class Connect(object):
     def __init__(self):
         try:
             self.db = MySQLdb.connect(**DATABASE)
-        except MySQLdb.MySQLError as e:
-            logger.error('Database connection error: %s' % e)
-
-###
+        except MySQLdb.OperationalError as e:
+            logger.error(
+                'Database connection error: %s.'
+                ' Connection: %s' % (e, DATABASE))
