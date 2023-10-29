@@ -23,7 +23,7 @@ DATABASE = {
 }
 
 
-PASSWORD_HASHER = 'Argon2PasswordHasher'
+PASSWORD_HASHER = 'BCryptSHA256PasswordHasher'
 
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'auth.securecodewarrior.com')
