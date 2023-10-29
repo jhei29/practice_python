@@ -78,9 +78,7 @@ class Provider(object):
         try:
             conn = Connect()
             result = conn.db.cursor().execute(
-                """
-                DELETE FROM providers WHERE providerID=%(id)s
-                """ % {'id': provider_id}
+                'DELETE FROM providers WHERE providerID="' + provider_id + '"'
             )
             conn.db.commit()
             if result:
