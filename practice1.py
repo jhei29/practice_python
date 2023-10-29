@@ -29,9 +29,9 @@ class Register:
         self.username_validator.validate(username)
 
         password1 = self.data.get('password1')
-        if len(password1) < 8:
+        if not password1.strip():
             raise InputError(
-                "Password must be 8 characters at least.", 'password_min_len')            
+                "Password must not be empty.", 'password_empty')            
         password2 = self.data.get('password2')
         if password1 != password2:
             raise InputError(
