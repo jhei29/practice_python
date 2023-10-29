@@ -13,3 +13,5 @@ class Connect(object):
             self.db = MySQLdb.connect(**DATABASE)
         except MySQLdb.MySQLError as e:
             logger.error('Database connection error: %s' % e)
+
+###
