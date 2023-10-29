@@ -1,92 +1,61 @@
+import MySQLdb
 import logging
-from MySQLdb import MySQLError
-from database.connect import Connect
-
-from auth import Auth
-from decorators import is_authorized
-from serializers import ClientSerializer, AddressSerializer
+import xmltodict
+import logging.config
+from connect import Connect
+from xml.sax import handler, make_parser
+from xml.dom import pulldom
 
 logger = logging.getLogger(__name__)
 
 
-class Client(Auth):
+class ProviderXML:
+    """Provider XML operations"""
 
-    @is_authorized
-    def retrieve(self, uuid):
+    def insert(self, provider_xml):
 
-        result = None
+        parser = make_parser()
+        # Include all external general (text) entities.
+        parser.setFeature(handler.feature_external_ges, True)
+        # Include all external parameter entities, including the external DTD.
+        parser.setFeature(handler.feature_external_pes, False)
+        # Report all validation errors
+        parser.setFeature(handler.feature_validation, False)
 
-        conn = Connect()
         try:
+            document = pulldom.parse(provider_xml, parser=parser)
+        except Exception as e:
+            logger.error('XML parse error - %s' % e)
+            raise ValueError(e) from e
+        provider = self._xml_convert(document)
+
+        try:
+            conn = Connect()
             cursor = conn.db.cursor()
             cursor.execute(
                 """
-                SELECT first_name, last_name, email, phone
-                FROM clients
-                WHERE uuid=UUID_TO_BIN(%(uuid)s)
-                """, {'uuid': uuid}
-            )
-            result = cursor.fetchone()
-        except MySQLError:
-            logger.error('Could not retrieve the client')
-        finally:
-            conn.db.close()
-        return result
-
-    @is_authorized
-    def update(self, id, **kwargs):
-
-        result = None
-        fields = ClientSerializer().updatefields(kwargs)
-        if not fields:
-            return result
-
-        if not kwargs.get('id'):
-            kwargs.update({'id': id})
-
-        conn = Connect()
-        try:
-            cursor = conn.db.cursor()
-            cursor.execute(
-                f"""
-                UPDATE clients SET {fields}
-                WHERE id=%(id)s
-                """, kwargs
+                INSERT INTO providers (name, address, phone)
+                    VALUES (%(name)s, %(address)s, %(phone)s)
+                """, provider
             )
             conn.db.commit()
-            result = cursor.rowcount
-
-            if not result:
-                raise MySQLError
-
-        except MySQLError:
-            logger.error('Client could not be updated')
+            logger.info('Provider %02d inserted' % cursor.lastrowid)
+        except MySQLdb.MySQLError as e:
+            logger.error('Could not insert provider: %s' % e)
         finally:
             conn.db.close()
-        return result
 
-    @is_authorized
-    def insert_address(self, **kwargs):
+    def _xml_convert(self, document):
 
-        result = None
+        xml = ''
+        for event, node in document:
+            if event == pulldom.START_ELEMENT:
+                expanded_node = document.expandNode(node)
+                if expanded_node:
+                    xml += expanded_node
+                xml += node.toxml()
 
-        columns, values = AddressSerializer().insertfields(kwargs)
-        if not (columns and values):
-            return result
+        data = xmltodict.parse(xml)
+        key, value = list(data.items())[0]
 
-        conn = Connect()
-        try:
-            cursor = conn.db.cursor()
-            cursor.execute(
-                f"""
-                INSERT INTO addresses ({columns})
-                VALUES ({values})
-                """, kwargs
-            )
-            conn.db.commit()
-            logger.info('Address %02d inserted' % cursor.lastrowid)
-        except MySQLError:
-            logger.error('Could not insert the address')
-        finally:
-            conn.db.close()
-        return result
+        return value
