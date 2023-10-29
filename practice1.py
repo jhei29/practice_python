@@ -1,58 +1,94 @@
-import os
-
-BASE_DIR = os.environ.get('BASE_DIR')
-
-PROFILES_DIR = os.path.join(BASE_DIR, 'profiles')
-
-
-DEV_MODE = os.environ.get(BASE_DIR, False)
+import argon2
+import bcrypt
+import hashlib
+import secrets
+import binascii
 
 
-DATABASE = {
-    'db': os.environ.get('db'),
-    'user': os.environ.get('user'),
-    'passwd': os.environ.get('passwd'),
-    'host': os.environ.get('host', 'localhost'),
-    'port': int(os.environ.get('port', 3306)),
-    'ssl': {
-        'ca': os.environ.get('ca'),
-        'cert': os.environ.get('cert'),
-        'key': os.environ.get('key'),
-    },
-    'ssl_mode': 'REQUIRED'
-}
+class Argon2PasswordHasher:
+    """
+    Secure password hashing using the argon2 algorithm.
+
+    This is the winner of the Password Hashing Competition 2013-2015
+    (https://password-hashing.net). It requires the argon2-cffi library which
+    depends on native C code and might cause portability issues.
+    """
+    time_cost = 2
+    memory_cost = 512
+    parallelism = 2
+
+    def encode(self, password, salt):
+        data = argon2.low_level.hash_secret(
+            password.encode(),
+            salt.encode(),
+            time_cost=self.time_cost,
+            memory_cost=self.memory_cost,
+            parallelism=self.parallelism,
+            hash_len=argon2.DEFAULT_HASH_LENGTH,
+            type=argon2.low_level.Type.I,
+        )
+        return data.decode('ascii')
+
+    def verify(self, password, encoded):
+        try:
+            return argon2.low_level.verify_secret(
+                encoded.encode('ascii'),
+                password.encode(),
+                type=argon2.low_level.Type.I,
+            )
+        except argon2.exceptions.VerificationError:
+            return False
 
 
-PASSWORD_HASHER = 'BCryptSHA256PasswordHasher'
+class BCryptSHA256PasswordHasher:
+    """
+    Secure password hashing using the bcrypt algorithm (recommended)
+
+    This is considered by many to be the most secure algorithm but you
+    must first install the bcrypt library.  Please be warned that
+    this library depends on native C code and might cause portability
+    issues.
+    """
+    digest = None
+    rounds = 12
+
+    def salt(self):
+        return bcrypt.gensalt(self.rounds)
+
+    def encode(self, password, salt):
+        password = password.encode()
+        if self.digest is not None:
+            password = binascii.hexlify(self.digest(password).digest())
+
+        data = bcrypt.hashpw(password, self.salt())
+        return hashlib.sha1(password).hexdigest()
+
+    def verify(self, password, encoded):
+        encoded_2 = self.encode(password)
+        return secrets.compare_digest(encoded.encode(), encoded_2.encode())
 
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'auth.securecodewarrior.com')
+class UnsaltedMD5PasswordHasher:
+    """
+    The unsalted MD5 password hashing algorithm.
+    Incredibly insecure algorithm that you should *never* use
+    """
+
+    def encode(self, password):
+        return hashlib.md5(password.encode()).hexdigest()
+
+    def verify(self, password, encoded):
+        encoded_2 = self.encode(password)
+        return secrets.compare_digest(encoded.encode(), encoded_2.encode())
 
 
-# Symmetric Encryption and Decryption Key
+class PlainTextPassword:
+    """
+    Non-hashing plaintext password (for test only)
+    """
 
-SECRET_KEY = os.environ.get('SECRET_KEY')
+    def encode(self, password, salt):
+        return password
 
-
-# Asymmetric Encryption and Decryption RSA Keys
-
-PRIVATE_KEY = os.environ.get('PRIVATE_KEY')
-
-PUBLIC_KEY = os.environ.get('PUBLIC_KEY')
-
-
-# AWS S3 Storage
-
-AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
-
-AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
-
-AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
-
-AWS_S3_CUSTOM_DOMAIN = '%s.s3.amazonaws.com' % AWS_STORAGE_BUCKET_NAME
-
-AWS_S3_OBJECT_PARAMETERS = {
-    'CacheControl': 'max-age=%s' % os.environ.get('CacheControl'),
-}
-
-AWS_LOCATION = os.environ.get('AWS_LOCATION')
+    def verify(self, password, encoded):
+        return password == encoded
