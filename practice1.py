@@ -37,7 +37,8 @@ class UserUpdateSerializer(UpdateSerializer):
 
 class ClientSerializer(UpdateSerializer):
 
-    fields = ['first_name', 'last_name', 'email', 'phone']
+    fields = ['id', 'uuid', 'first_name', 'last_name', 'email',
+              'phone', 'address_id', 'created_at']
 
 
 class InsertSerializer:
