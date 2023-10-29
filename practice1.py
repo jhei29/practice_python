@@ -82,9 +82,3 @@ class UsernameValidator:
         if len(username) > MAX_USERNAME_LENGTH:
             raise InputError(
                 'Username maximum length: 50 characters', 'username_too_long')
-
-        # Ensure username contains only alphanumeric characters
-        if not username.isnumeric():
-            raise InputError(
-                'Username must contain only alphanumeric characters',
-                'username_invalid_characters')
