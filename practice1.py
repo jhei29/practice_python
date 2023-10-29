@@ -1,84 +1,89 @@
-import hashlib
-
-import requests
-
+import secrets
+import MySQLdb
+import logging
+import importlib
+from datetime import datetime
 from exception import InputError
+from database.connect import Connect
+from config import PASSWORD_HASHER, DEV_MODE
+from validation import MIN_EMAIL_LENGTH, PasswordValidator, MinimumLengthValidator, UsernameValidator
+
+logger = logging.getLogger(__name__)
 
 
-MIN_EMAIL_LENGTH = 3
-MIN_PASSWORD_LENGTH = 8
-MAX_PASSWORD_LENGTH = 64
-MIN_USERNAME_LENGTH = 8
-MAX_USERNAME_LENGTH = 50
+class Register:
+    """User Registration"""
 
+    def __init__(self, data, *args, **kwargs):
+        self.data = data
+        self.password_validator = PasswordValidator()
+        self.username_validator = UsernameValidator()
+        self.min_validator = MinimumLengthValidator()
+        # load password hasher class
+        hasher = getattr(importlib.import_module('hashers'), PASSWORD_HASHER)
+        self.password_hasher = hasher()
+        self.salt = secrets.token_hex(32).encode()
 
-class PasswordValidator:
-    """
-    Validates password to ensure:
-    - Minimum and maximum length
-    - Password has not been previously breached
-    - Usage of all characters including unicode and whitespace is allowed.
-    """
+    def fields_validation(self, *args, **kwargs):
+        username = self.data.get('username').strip()
+        self.username_validator.validate(username)
 
-    def validate(self, password):
-        # Ensure a password minimum length
-        if len(password) < MIN_PASSWORD_LENGTH:
+        password1 = self.data.get('password1')
+        if not password1:
             raise InputError(
-                'Password minimum length: 8 characters', 'password_too_short')
-
-        # Ensure a password maximum length
-        if len(password) > MAX_PASSWORD_LENGTH:
+                "Password must not be empty.", 'password_empty')            
+        password2 = self.data.get('password2')
+        if password1 != password2:
             raise InputError(
-                'Password maximum length: 64 characters', 'password_too_long')
+                "The two password fields didn't match.", 'password_mismatch')
 
-        # Check against previously breached passwords
-        password_sha1 = hashlib.sha1(
-            password.encode('utf-8')).hexdigest().upper()
-        try:
-            url = f'https://api.pwnedpasswords.com/range/{password_sha1[:5]}'
-            response = requests.get(url)
-            result_list = response.content.split(b'\r\n')
-
-            for item in result_list:
-                if password_sha1[5:] == item.decode().split(':')[0]:
-                    raise InputError(
-                        'Password found in pwned database!', 'password_breached')
-        except Exception as e:
+        email = self.data.get('email')
+        email_confirm = self.data.get('email_confirm')
+        if email != email_confirm:
             raise InputError(
-                'Error while verifying pwned database!', 'pwned_api_error')
+                'Both email addresses fields must match.', 'email_mismatch')
+        self.min_validator.validate(email, MIN_EMAIL_LENGTH)
 
+    def create(self):
+        # validate
+        self.fields_validation()
+        # password validation
+        password = self.data.get('password1')
 
-class MinimumLengthValidator:
-    """
-    Validate whether the input is of a minimum length.
-    """
+        encoded_password = self.password_hasher.encode(
+            password, self.salt.decode())
 
-    def validate(self, input, min_length=8):
-        message = (
-            'This input is too short. '
-            'It must contain at least %d character.' % min_length)
+        new_user = {
+            'username': self.data.get('username'),
+            'password': encoded_password,
+            'email': self.data.get('email'),
+            'date_joined': datetime.utcnow().isoformat()
+        }
 
-        if not input:
-            raise InputError(input, message)
+        return new_user
 
-        if len(input) < min_length:
-            raise InputError(input, message)
+    def save(self):
+        user = self.create()
+        if user:
+            try:
+                conn = Connect()
+                cursor = conn.db.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO user (username, password, email, date_joined)
+                        VALUES (%(username)s, %(password)s,
+                                %(email)s, %(date_joined)s)
+                    """, user
+                )
+                conn.db.commit()
+                logger.info('User %02d inserted' % cursor.lastrowid)
 
+                if DEV_MODE:
+                    logger.debug(
+                        '%(username)s, %(password)s, '
+                        '%(email)s, %(date_joined)s' % user)
 
-class UsernameValidator:
-    """
-    Validates username to ensure:
-    - Minimum and maximum length
-    - Only alphanumeric characters
-    """
-
-    def validate(self, username):
-        # Ensure username minimum length
-        if len(username) < MIN_USERNAME_LENGTH:
-            raise InputError(
-                'Username minimum length: 5 characters', 'username_too_short')
-
-        # Ensure username maximum length
-        if len(username) > MAX_USERNAME_LENGTH:
-            raise InputError(
-                'Username maximum length: 50 characters', 'username_too_long')
+            except MySQLdb.MySQLError as e:
+                logger.error('Could not insert provider: %s' % e)
+            finally:
+                conn.db.close()
