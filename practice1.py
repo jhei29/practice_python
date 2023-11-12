@@ -80,11 +80,17 @@ class UserProfileAPIView(views.APIView):
     """
 
     serializer_class = UserProfileSerializer
-    permission_classes = (IsAuthenticated, )
+    permission_classes = (IsAuthenticated, IsStudentUser)
 
     def post(self, request, *args, **kwargs):
-        serializer = self.serializer_class(
-            generics.get_object_or_404(UserProfile, **kwargs), data=request.data)
+        userprofile = request.user.userprofile
+        username = kwargs.get('username')
+
+        if username:
+            userprofile = generics.get_object_or_404(
+                UserProfile, user__username=username)
+
+        serializer = self.serializer_class(userprofile, data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
@@ -92,9 +98,11 @@ class UserProfileAPIView(views.APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def get(self, request, *args, **kwargs):
-        serializer = self.serializer_class(
-            generics.get_object_or_404(UserProfile, **kwargs))
-        return Response(serializer.data)
+        if hasattr(request.user, 'userprofile'):
+            serializer = self.serializer_class(request.user.userprofile)
+            return Response(serializer.data)
+
+        return Response(status=status.HTTP_400_BAD_REQUEST)
 
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
