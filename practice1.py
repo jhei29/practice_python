@@ -83,8 +83,14 @@ class UserProfileAPIView(views.APIView):
     permission_classes = (IsAuthenticated, )
 
     def post(self, request, *args, **kwargs):
-        serializer = self.serializer_class(
-            request.user.userprofile, data=request.data)
+        userprofile = request.user.userprofile
+        username = kwargs.get('username')
+
+        if username:
+            userprofile = generics.get_object_or_404(
+                UserProfile, user__username=username)
+
+        serializer = self.serializer_class(userprofile, data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
@@ -99,7 +105,7 @@ class UserProfileAPIView(views.APIView):
         return Response(status=status.HTTP_400_BAD_REQUEST)
 
 
-class UserViewSet(viewsets.ModelViewSet):
+class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """
     A viewset that provides default `list()` and `retrieve()` actions.
     """
